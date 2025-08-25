@@ -1,0 +1,21 @@
+{
+  "name": "hello-world-api",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/colintran2205/hello-world-api.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/colintran2205/hello-world-api/issues"
+  },
+  "homepage": "https://github.com/colintran2205/hello-world-api#readme"
+}
