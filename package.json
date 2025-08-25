@@ -17,5 +17,8 @@
   "bugs": {
     "url": "https://github.com/colintran2205/hello-world-api/issues"
   },
-  "homepage": "https://github.com/colintran2205/hello-world-api#readme"
+  "homepage": "https://github.com/colintran2205/hello-world-api#readme",
+  "dependencies": {
+    "express": "^5.1.0"
+  }
 }
