@@ -71,6 +71,7 @@ jobs:
           docker build \
             --tag ${{ steps.image_tags.outputs.version_tag }} \
             --tag ${{ steps.image_tags.outputs.latest_tag }} \
+            .
 
       - name: "Push Docker Image to Artifact Registry"
         run: |
