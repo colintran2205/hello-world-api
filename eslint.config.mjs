@@ -4,10 +4,15 @@ import globals from 'globals';
 
 export default defineConfig([
   { 
-    files: ['**/*.{js}'], 
+    files: ['**/*.js'], 
     plugins: { js }, 
     extends: ['js/recommended'], 
-    languageOptions: { globals: globals.browser }, 
+    languageOptions: { globals: {
+      ...globals.browser,
+      ...globals.node,
+      ...globals.jest,
+      } 
+    }, 
     rules: { // custom eslint rules
       'no-unused-vars': 'warn',
       'no-undef': 'warn',
