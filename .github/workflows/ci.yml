@@ -9,6 +9,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      security-events: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
@@ -41,6 +42,19 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: colintran2205/hello-world-api
 
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/node@master
+        continue-on-error: true # To make sure that SARIF upload gets called
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --sarif-file-output=snyk.sarif
+
+      - name: Upload result to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk.sarif
+
       - name: Authenticate to Google Cloud
         id: auth
         uses: "google-github-actions/auth@v2"
@@ -72,6 +86,16 @@ jobs:
             --tag ${{ steps.image_tags.outputs.version_tag }} \
             --tag ${{ steps.image_tags.outputs.latest_tag }} \
             .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: "${{ steps.image_tags.outputs.latest_tag }}"
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
 
       - name: "Push Docker Image to Artifact Registry"
         run: |
