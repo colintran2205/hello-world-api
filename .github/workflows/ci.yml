@@ -3,6 +3,7 @@ name: Hello World API CI
 on:
   push:
     branches: [main]
+    tags: ["v*.*.*"]
 
 jobs:
   ci:
@@ -66,15 +67,14 @@ jobs:
       - name: Configure Docker for AR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev
 
-      - name: "Extract Version from package.json"
-        id: get_version
-        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
-
-      - name: "Define Image Tags"
+      - name: "Define Image Tags from git ref"
         id: image_tags
         run: |
-          VERSION_TAG="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}:${{ steps.get_version.outputs.version }}"
           LATEST_TAG="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}:latest"
+          VERSION_TAG=""
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION_TAG="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}:${GITHUB_REF_NAME}"
+          fi
           echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
           echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
           echo "Version Tag: ${VERSION_TAG}"
@@ -82,25 +82,34 @@ jobs:
 
       - name: "Build Docker Image"
         run: |
-          docker build \
-            --tag ${{ steps.image_tags.outputs.version_tag }} \
-            --tag ${{ steps.image_tags.outputs.latest_tag }} \
-            .
+          docker build --tag ${{ steps.image_tags.outputs.latest_tag }} .
+          if [ -n "${{ steps.image_tags.outputs.version_tag }}" ]; then
+            docker tag ${{ steps.image_tags.outputs.latest_tag }} ${{ steps.image_tags.outputs.version_tag }}
+          fi
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: "${{ steps.image_tags.outputs.latest_tag }}"
-          format: "table"
+          format: "sarif"
           exit-code: "1"
-          ignore-unfixed: true
+          output: "trivy-results.sarif"
+          skip-setup-trivy: true
           vuln-type: "os,library"
+          ignore-unfixed: true
           severity: "CRITICAL,HIGH"
+
+      - name: Upload result to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
 
       - name: "Push Docker Image to Artifact Registry"
         run: |
-          docker push ${{ steps.image_tags.outputs.version_tag }}
           docker push ${{ steps.image_tags.outputs.latest_tag }}
+          if [ -n "${{ steps.image_tags.outputs.version_tag }}" ]; then
+            docker push ${{ steps.image_tags.outputs.version_tag }}
+          fi
 
   cd:
     runs-on: ubuntu-latest
@@ -141,4 +150,6 @@ jobs:
 
       - name: Route traffic to latest revision
         run: |
-          gcloud run services update-traffic ${{ secrets.CLOUDRUN_SERVICE_NAME }} --to-latest
+          gcloud run services update-traffic ${{ secrets.CLOUDRUN_SERVICE_NAME }} \
+            --region=${{ secrets.GCP_REGION }} \
+            --to-latest
