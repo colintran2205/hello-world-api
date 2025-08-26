@@ -136,4 +136,5 @@ jobs:
             --port="3000" \
             --liveness-probe=/health,timeoutSeconds=10,httpGet.port=3000 \
             --no-traffic=false \
-            --cpu=1 --memory="512Mi"
+            --cpu=1 --memory="512Mi" \
+            --region=${{ secrets.GCP_REGION }}
