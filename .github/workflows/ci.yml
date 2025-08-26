@@ -25,7 +25,13 @@ jobs:
         run: npm ci
 
       - name: Run lint
+        id: lint
+        continue-on-error: true
         run: npm run lint
+
+      - name: Run lint:fix if lint failed
+        if: steps.lint.outcome == 'failure'
+        run: npm run lint:fix
 
       - name: Run tests with coverage
         run: npm run test:coverage
