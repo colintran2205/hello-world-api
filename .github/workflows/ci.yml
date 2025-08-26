@@ -4,12 +4,11 @@ on:
   push:
     branches: [main]
 
-env:
-  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  GCP_REGION: ${{ secrets.GCP_REGION }}
-
 jobs:
   ci:
+    permissions:
+      id-token: write
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
@@ -41,3 +40,39 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: colintran2205/hello-world-api
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: "google-github-actions/auth@v2"
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for AR
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev
+
+      - name: "Extract Version from package.json"
+        id: get_version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: "Define Image Tags"
+        id: image_tags
+        run: |
+          VERSION_TAG="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}:${{ steps.get_version.outputs.version }}"
+          LATEST_TAG="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}:latest"
+          echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
+          echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+          echo "Version Tag: ${VERSION_TAG}"
+          echo "Latest Tag: ${LATEST_TAG}"
+
+      - name: "Build Docker Image"
+        run: |
+          docker build \
+            --tag ${{ steps.image_tags.outputs.version_tag }} \
+            --tag ${{ steps.image_tags.outputs.latest_tag }} \
+
+      - name: "Push Docker Image to Artifact Registry"
+        run: |
+          docker push ${{ steps.image_tags.outputs.version_tag }}
+          docker push ${{ steps.image_tags.outputs.latest_tag }}
