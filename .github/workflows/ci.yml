@@ -128,6 +128,4 @@ jobs:
           region: ${{ secrets.GCP_REGION }}
           image: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}:latest
           revision_traffic: "LATEST=100"
-
-      - name: "Show Cloud Run Service URL"
-        run: echo "Successfully deployed to ${{ steps.deploy.outputs.url }}"
+          flags: '--ingress="all" --allow-unauthenticated --cpu-throttling --min=1 --max-instances=3 --cpu=1 --memory="256Mi" --port="3000" --liveness-probe="/health,timeoutSeconds=10,httpGet.port=3000"'
