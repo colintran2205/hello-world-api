@@ -64,13 +64,8 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: "Set up Cloud SDK"
-        uses: "google-github-actions/setup-gcloud@main"
-        with:
-          version: ">= 363.0.0"
-
       - name: Configure Docker for AR
-        run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --project=${{ secrets.GCP_PROJECT_ID }}
 
       - name: "Build Docker Image"
         id: build
