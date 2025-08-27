@@ -67,37 +67,26 @@ jobs:
       - name: Configure Docker for AR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev
 
-      - name: "Define Image Tags from git ref"
-        id: image_tags
-        run: |
-          VERSION_NUMBER="${GITHUB_REF#refs/tags/}"
-          if [[ ! "$VERSION_NUMBER" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: Invalid version tag format. Expected vX.Y.Z, got: $VERSION_NUMBER"
-            exit 1
-          fi
-          BASE_URL="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}"
-          LATEST_TAG="${BASE_URL}:latest"
-          VERSION_TAG="${BASE_URL}:${VERSION_NUMBER}"
-          echo "Git ref: ${GITHUB_REF}"
-          echo "Version number: ${VERSION_NUMBER}"
-          echo "Base URL: ${BASE_URL}"
-          echo "Version tag: ${VERSION_TAG}"
-          echo "Latest tag: ${LATEST_TAG}"
-          echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
-          echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
-          echo "version_number=${VERSION_NUMBER}" >> $GITHUB_OUTPUT
-
       - name: "Build Docker Image"
+        id: build
         run: |
+          BASE_URL="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}"
+          VERSION_NUMBER="${GITHUB_REF#refs/tags/}"
+          VERSION_TAG="${BASE_URL}:${VERSION_NUMBER}"
+          LATEST_TAG="${BASE_URL}:latest"
+
           docker build \
-            --tag ${{ steps.image_tags.outputs.version_tag }} \
-            --tag ${{ steps.image_tags.outputs.latest_tag }} \
+            --tag "${VERSION_TAG}" \
+            --tag "${LATEST_TAG}" \
             .
+
+          echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+          echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: "${{ steps.image_tags.outputs.latest_tag }}"
+          image-ref: "${{ steps.build.outputs.latest_tag }}"
           format: "sarif"
           exit-code: "1"
           output: "trivy-results.sarif"
@@ -113,10 +102,8 @@ jobs:
 
       - name: "Push Docker Image to Artifact Registry"
         run: |
-          docker push ${{ steps.image_tags.outputs.latest_tag }}
-          if [ -n "${{ steps.image_tags.outputs.version_tag }}" ]; then
-            docker push ${{ steps.image_tags.outputs.version_tag }}
-          fi
+          docker push ${{ steps.build.outputs.latest_tag }}
+          docker push ${{ steps.build.outputs.version_tag }}
 
   cd:
     runs-on: ubuntu-latest
