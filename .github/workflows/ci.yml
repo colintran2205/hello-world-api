@@ -73,7 +73,8 @@ jobs:
           LATEST_TAG="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}:latest"
           VERSION_TAG=""
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            VERSION_TAG="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}:${GITHUB_REF_NAME}"
+            VERSION_NUMBER="${GITHUB_REF_NAME#v}"
+            VERSION_TAG="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}:${VERSION_NUMBER}"
           fi
           echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
           echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
