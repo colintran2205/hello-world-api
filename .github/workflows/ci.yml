@@ -5,23 +5,14 @@ on:
     branches: [main]
 
 env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  REGION: ${{ secrets.GCP_REGION }}
-  SERVICE_NAME: ${{ secrets.CLOUDRUN_SERVICE_NAME }}
-  REPO_NAME: ${{ secrets.AR_REPO_NAME }}
-  WIF_PROVIDER_ID: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-  SA_MAIL: ${{ secrets.GCP_SERVICE_ACCOUNT }}
   AR_IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/hello-world-api
 
 jobs:
   ci:
     permissions:
-      id-token: write
+      id-token: "write"
       contents: read
       security-events: write
-    outputs:
-      image-tag: ${{ steps.meta.outputs.tags }}
-      image-digest: ${{ steps.build.outputs.digest }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
@@ -72,9 +63,9 @@ jobs:
         id: auth
         uses: "google-github-actions/auth@v2"
         with:
-          project_id: ${{ env.PROJECT_ID }}
-          workload_identity_provider: ${{ env.WIF_PROVIDER_ID }}
-          service_account: ${{ env.SA_MAIL }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: "Set up Cloud SDK"
         uses: "google-github-actions/setup-gcloud@main"
@@ -82,33 +73,31 @@ jobs:
           version: ">= 363.0.0"
 
       - name: Configure Docker for AR
-        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --project=${{ env.PROJECT_ID }}
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --project=${{ secrets.GCP_PROJECT_ID }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.AR_IMAGE }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
-            type=semver,pattern=v{{major}}.{{minor}}.{{patch}}
+      - name: "Extract Version from package.json"
+        id: get_version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
 
-      - name: Build Docker image
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: "Define Image Tags"
+        id: image_tags
+        run: |
+          VERSION_TAG="${{ env.AR_IMAGE }}:${{ steps.get_version.outputs.version }}"
+          LATEST_TAG="${{ env.AR_IMAGE }}:latest"
+          echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
+          echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+
+      - name: "Build Docker Image"
+        run: |
+          docker build \
+            --tag ${{ steps.image_tags.outputs.version_tag }} \
+            --tag ${{ steps.image_tags.outputs.latest_tag }} \
+            .
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ steps.meta.outputs.tags }}
+          image-ref: ${{ steps.image_tags.outputs.latest_tag }}
           format: "sarif"
           output: "trivy-results.sarif"
 
@@ -119,15 +108,9 @@ jobs:
           sarif_file: trivy-results.sarif
 
       - name: "Push Docker Image to Artifact Registry"
-        if: github.ref == 'refs/heads/main'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: |
+          docker push ${{ steps.image_tags.outputs.version_tag }}
+          docker push ${{ steps.image_tags.outputs.latest_tag }}
 
   cd:
     runs-on: ubuntu-latest
@@ -146,9 +129,9 @@ jobs:
         id: auth
         uses: "google-github-actions/auth@v2"
         with:
-          project_id: ${{ env.PROJECT_ID }}
-          workload_identity_provider: ${{ env.WIF_PROVIDER_ID }}
-          service_account: ${{ env.SA_MAIL }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: "Set up Cloud SDK"
         uses: "google-github-actions/setup-gcloud@main"
@@ -166,7 +149,7 @@ jobs:
             --cpu=1 --memory="512Mi" \
             --min-instances=1 --max-instances=3 \
             --set-env-vars="NODE_ENV=production" \
-            --region=${{ env.REGION }}
+            --region=${{ secrets.GCP_REGION }}
 
       - name: Route traffic to latest revision
         run: |
@@ -177,7 +160,7 @@ jobs:
       - name: Get Service URL
         id: service-url
         run: |
-          SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} --region=${{ env.REGION }} --format="value(status.url)")
+          SERVICE_URL=$(gcloud run services describe ${{ secrets.CLOUDRUN_SERVICE_NAME }} --region=${{ secrets.GCP_REGION }} --format="value(status.url)")
           echo "SERVICE_URL=${SERVICE_URL}" >> $GITHUB_OUTPUT
           echo "Service deployed at: ${SERVICE_URL}"
 
@@ -198,9 +181,9 @@ jobs:
         id: auth
         uses: "google-github-actions/auth@v2"
         with:
-          project_id: ${{ env.PROJECT_ID }}
-          workload_identity_provider: ${{ env.WIF_PROVIDER_ID }}
-          service_account: ${{ env.SA_MAIL }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: "Set up Cloud SDK"
         uses: "google-github-actions/setup-gcloud@main"
@@ -210,13 +193,13 @@ jobs:
       - name: List revisions
         run: |
           echo "Available revisions:"
-          gcloud run revisions list --service=${{ env.SERVICE_NAME }} --region=${{ env.REGION }}
+          gcloud run revisions list --service=${{ secrets.CLOUDRUN_SERVICE_NAME }} --region=${{ secrets.GCP_REGION }}
 
       - name: Rollback instructions
         run: |
           echo "To rollback manually, run:"
-          echo "gcloud run services update-traffic ${{ env.SERVICE_NAME }} --to-revisions=REVISION-NAME=100 --region=${{ env.REGION }}"
+          echo "gcloud run services update-traffic ${{ secrets.CLOUDRUN_SERVICE_NAME }} --to-revisions=REVISION-NAME=100 --region=${{ secrets.GCP_REGION }}"
           echo ""
           echo "To rollback to previous revision:"
-          PREVIOUS_REVISION=$(gcloud run revisions list --service=${{ env.SERVICE_NAME }} --region=${{ env.REGION }} --format="value(metadata.name)" --limit=2 | tail -n 1)
-          echo "gcloud run services update-traffic ${{ env.SERVICE_NAME }} --to-revisions=${PREVIOUS_REVISION}=100 --region=${{ env.REGION }}"
+          PREVIOUS_REVISION=$(gcloud run revisions list --service=${{ secrets.CLOUDRUN_SERVICE_NAME }} --region=${{ secrets.GCP_REGION }} --format="value(metadata.name)" --limit=2 | tail -n 1)
+          echo "gcloud run services update-traffic ${{ secrets.CLOUDRUN_SERVICE_NAME }} --to-revisions=${PREVIOUS_REVISION}=100 --region=${{ secrets.GCP_REGION }}"
