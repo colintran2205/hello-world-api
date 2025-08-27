@@ -70,6 +70,7 @@ jobs:
       - name: "Define Image Tags from git ref"
         id: image_tags
         run: |
+          # Construct tags without line breaks
           LATEST_TAG="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}:latest"
           VERSION_TAG=""
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
