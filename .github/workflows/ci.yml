@@ -64,9 +64,6 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Configure Docker for AR
-        run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev
-
       - name: "Build Docker Image"
         id: build
         run: |
@@ -98,6 +95,7 @@ jobs:
 
       - name: "Push Docker Image to Artifact Registry"
         run: |
+          gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev
           docker push ${{ steps.build.outputs.latest_tag }}
           docker push ${{ steps.build.outputs.version_tag }}
 
