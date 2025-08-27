@@ -146,8 +146,9 @@ jobs:
             --allow-unauthenticated \
             --port="3000" \
             --liveness-probe=httpGet.path=/health,timeoutSeconds=10,httpGet.port=3000 \
-            --cpu=1 --memory="512Mi" \
-            --min-instances=1 --max-instances=3 \
+            --cpu=1 --memory="128Mi" \
+            --min-instances=1 --max-instances=5 \
+            --concurrency=1\
             --set-env-vars="NODE_ENV=production" \
             --region=${{ secrets.GCP_REGION }}
 
