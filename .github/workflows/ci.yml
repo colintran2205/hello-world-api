@@ -70,24 +70,17 @@ jobs:
       - name: "Define Image Tags from git ref"
         id: image_tags
         run: |
-          # Construct tags without line breaks
           LATEST_TAG="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}:latest"
-          VERSION_TAG=""
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            VERSION_NUMBER="${GITHUB_REF_NAME#v}"
-            VERSION_TAG="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}:${VERSION_NUMBER}"
-          fi
+          VERSION_NUMBER="${GITHUB_REF#refs/tags/}"
+          VERSION_TAG="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}:${VERSION_NUMBER}"
           echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
           echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
-          echo "Version Tag: ${VERSION_TAG}"
-          echo "Latest Tag: ${LATEST_TAG}"
-
       - name: "Build Docker Image"
         run: |
-          docker build --tag ${{ steps.image_tags.outputs.latest_tag }} .
-          if [ -n "${{ steps.image_tags.outputs.version_tag }}" ]; then
-            docker tag ${{ steps.image_tags.outputs.latest_tag }} ${{ steps.image_tags.outputs.version_tag }}
-          fi
+          docker build \
+            --tag ${{ steps.image_tags.outputs.version_tag }} \
+            --tag ${{ steps.image_tags.outputs.latest_tag }} \
+            .
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
