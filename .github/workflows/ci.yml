@@ -90,7 +90,6 @@ jobs:
           format: "sarif"
           exit-code: "1"
           output: "trivy-results.sarif"
-          skip-setup-trivy: true
           vuln-type: "os,library"
           ignore-unfixed: true
           severity: "CRITICAL,HIGH"
