@@ -3,7 +3,15 @@ name: Hello World API CI
 on:
   push:
     branches: [main]
-    tags: ["v*.*.*"]
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ secrets.GCP_REGION }}
+  SERVICE_NAME: ${{ secrets.CLOUDRUN_SERVICE_NAME }}
+  REPO_NAME: ${{ secrets.AR_REPO_NAME }}
+  WIF_PROVIDER_ID: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+  SA_MAIL: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+  AR_IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/hello-world-api
 
 jobs:
   ci:
@@ -11,10 +19,13 @@ jobs:
       id-token: write
       contents: read
       security-events: write
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -53,6 +64,7 @@ jobs:
 
       - name: Upload result to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
+        if: always()
         with:
           sarif_file: snyk.sarif
 
@@ -60,33 +72,43 @@ jobs:
         id: auth
         uses: "google-github-actions/auth@v2"
         with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: ${{ env.WIF_PROVIDER_ID }}
+          service_account: ${{ env.SA_MAIL }}
+
+      - name: "Set up Cloud SDK"
+        uses: "google-github-actions/setup-gcloud@main"
+        with:
+          version: ">= 363.0.0"
 
       - name: Configure Docker for AR
-        run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --project=${{ secrets.GCP_PROJECT_ID }}
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --project=${{ env.PROJECT_ID }}
 
-      - name: "Build Docker Image"
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.AR_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern=v{{major}}.{{minor}}.{{patch}}
+
+      - name: Build Docker image
         id: build
-        run: |
-          BASE_URL="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}"
-          VERSION_NUMBER="${GITHUB_REF#refs/tags/}"
-          VERSION_TAG="${BASE_URL}:${VERSION_NUMBER}"
-          LATEST_TAG="${BASE_URL}:latest"
-
-          docker build \
-            --tag "${VERSION_TAG}" \
-            --tag "${LATEST_TAG}" \
-            .
-
-          echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
-          echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: "${{ steps.build.outputs.latest_tag }}"
+          image-ref: ${{ steps.meta.outputs.tags }}
           format: "sarif"
           output: "trivy-results.sarif"
 
@@ -97,13 +119,20 @@ jobs:
           sarif_file: trivy-results.sarif
 
       - name: "Push Docker Image to Artifact Registry"
-        run: |
-          docker push ${{ steps.build.outputs.latest_tag }}
-          docker push ${{ steps.build.outputs.version_tag }}
+        if: github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   cd:
     runs-on: ubuntu-latest
     needs: ci
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: "read"
       id-token: "write"
@@ -111,15 +140,15 @@ jobs:
       IMAGE_NAME: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO_NAME }}/${{ secrets.CLOUDRUN_SERVICE_NAME }}:latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Authenticate to Google Cloud
         id: auth
         uses: "google-github-actions/auth@v2"
         with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: ${{ env.WIF_PROVIDER_ID }}
+          service_account: ${{ env.SA_MAIL }}
 
       - name: "Set up Cloud SDK"
         uses: "google-github-actions/setup-gcloud@main"
@@ -129,17 +158,65 @@ jobs:
       - name: Google Cloud Run deployment
         run: |
           gcloud run deploy ${{ secrets.CLOUDRUN_SERVICE_NAME }} \
-            --image="${{ env.IMAGE_NAME }}" \
+            --image="${{ env.AR_IMAGE }}:latest" \
             --platform=managed \
             --allow-unauthenticated \
             --port="3000" \
             --liveness-probe=httpGet.path=/health,timeoutSeconds=10,httpGet.port=3000 \
             --cpu=1 --memory="512Mi" \
             --min-instances=1 --max-instances=3 \
-            --region=${{ secrets.GCP_REGION }}
+            --set-env-vars="NODE_ENV=production" \
+            --region=${{ env.REGION }}
 
       - name: Route traffic to latest revision
         run: |
           gcloud run services update-traffic ${{ secrets.CLOUDRUN_SERVICE_NAME }} \
             --region=${{ secrets.GCP_REGION }} \
             --to-latest
+
+      - name: Get Service URL
+        id: service-url
+        run: |
+          SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} --region=${{ env.REGION }} --format="value(status.url)")
+          echo "SERVICE_URL=${SERVICE_URL}" >> $GITHUB_OUTPUT
+          echo "Service deployed at: ${SERVICE_URL}"
+
+      - name: Health Check
+        run: |
+          sleep 30
+
+          # Test the health endpoint
+          curl -f "${{ steps.service-url.outputs.SERVICE_URL }}" || exit 1
+          echo "Health check passed!"
+
+  # Rollback Job (Manual trigger only)
+  rollback:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: "google-github-actions/auth@v2"
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: ${{ env.WIF_PROVIDER_ID }}
+          service_account: ${{ env.SA_MAIL }}
+
+      - name: "Set up Cloud SDK"
+        uses: "google-github-actions/setup-gcloud@main"
+        with:
+          version: ">= 363.0.0"
+
+      - name: List revisions
+        run: |
+          echo "Available revisions:"
+          gcloud run revisions list --service=${{ env.SERVICE_NAME }} --region=${{ env.REGION }}
+
+      - name: Rollback instructions
+        run: |
+          echo "To rollback manually, run:"
+          echo "gcloud run services update-traffic ${{ env.SERVICE_NAME }} --to-revisions=REVISION-NAME=100 --region=${{ env.REGION }}"
+          echo ""
+          echo "To rollback to previous revision:"
+          PREVIOUS_REVISION=$(gcloud run revisions list --service=${{ env.SERVICE_NAME }} --region=${{ env.REGION }} --format="value(metadata.name)" --limit=2 | tail -n 1)
+          echo "gcloud run services update-traffic ${{ env.SERVICE_NAME }} --to-revisions=${PREVIOUS_REVISION}=100 --region=${{ env.REGION }}"
